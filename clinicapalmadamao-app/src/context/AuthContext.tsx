@@ -43,23 +43,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return 'demo';
     }
     try {
-      let { data: conv } = await supabase
+      let { data: convList } = await supabase
         .from('conversas')
         .select('id')
-        .eq('paciente_id', pacId)
-        .eq('status', 'ativa')
-        .maybeSingle();
+        .eq('paciente_id', Number(pacId))
+        .order('id', { ascending: true })
+        .limit(1);
 
-      if (!conv) {
+      let cId = convList && convList.length > 0 ? convList[0].id : null;
+
+      if (!cId) {
         const { data: newConv } = await supabase
           .from('conversas')
-          .insert({ paciente_id: pacId, status: 'ativa' })
+          .insert({ paciente_id: Number(pacId), status: 'ativa' })
           .select('id')
           .maybeSingle();
-        conv = newConv;
+        cId = newConv?.id || null;
       }
 
-      const cId = conv?.id || null;
       if (cId) {
         setConversaId(cId);
         localStorage.setItem('cpm_conv', JSON.stringify(cId));
