@@ -12,6 +12,7 @@ interface AuthContextType {
   showToast: (text: string, type?: 'success' | 'error' | 'info') => void;
   unreadCount: number;
   setUnreadCount: React.Dispatch<React.SetStateAction<number>>;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -36,19 +37,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 4000);
   };
 
-  useEffect(() => {
-    const savedUser = localStorage.getItem('cpm_user');
-    const savedConv = localStorage.getItem('cpm_conv');
-    if (savedUser && savedConv) {
-      try {
-        setUser(JSON.parse(savedUser));
-        setConversaId(JSON.parse(savedConv));
-      } catch (e) {
-        localStorage.removeItem('cpm_user');
-        localStorage.removeItem('cpm_conv');
-      }
+  const fetchActiveConversa = async (pacId: number | string) => {
+    if (pacId === 'demo') {
+      setConversaId('demo');
+      return 'demo';
     }
-    setLoading(false);
+    try {
+      let { data: conv } = await supabase
+        .from('conversas')
+        .select('id')
+        .eq('paciente_id', pacId)
+        .eq('status', 'ativa')
+        .maybeSingle();
+
+      if (!conv) {
+        const { data: newConv } = await supabase
+          .from('conversas')
+          .insert({ paciente_id: pacId, status: 'ativa' })
+          .select('id')
+          .maybeSingle();
+        conv = newConv;
+      }
+
+      const cId = conv?.id || null;
+      if (cId) {
+        setConversaId(cId);
+        localStorage.setItem('cpm_conv', JSON.stringify(cId));
+      }
+      return cId;
+    } catch (err) {
+      console.error('[AuthContext] Error fetching conversa:', err);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const initFromStorage = async () => {
+      const savedUser = localStorage.getItem('cpm_user');
+      if (savedUser) {
+        try {
+          const parsedUser = JSON.parse(savedUser);
+          setUser(parsedUser);
+          await fetchActiveConversa(parsedUser.id);
+        } catch (e) {
+          localStorage.removeItem('cpm_user');
+          localStorage.removeItem('cpm_conv');
+        }
+      }
+      setLoading(false);
+    };
+
+    initFromStorage();
   }, []);
 
   const login = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
@@ -85,9 +124,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const senhaCadastrada = pacBase.senha_chat ?? null;
 
       if (senhaCadastrada === null || senhaCadastrada === undefined) {
-        // Acesso provisório liberado
         const pacObj: Paciente = { ...pacBase, _semSenha: true };
-        await initPatientSession(pacObj);
+        setUser(pacObj);
+        localStorage.setItem('cpm_user', JSON.stringify(pacObj));
+        await fetchActiveConversa(pacObj.id);
         showToast('Acesso provisório — peça à clínica para definir sua senha no cadastro', 'info');
         return { success: true };
       }
@@ -97,39 +137,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Login bem sucedido
-      await initPatientSession(pacBase);
+      setUser(pacBase);
+      localStorage.setItem('cpm_user', JSON.stringify(pacBase));
+      await fetchActiveConversa(pacBase.id);
       return { success: true };
     } catch (err: any) {
       console.error('[AuthContext] Login error:', err);
       return { success: false, error: 'Erro de conexão. Tente novamente.' };
-    }
-  };
-
-  const initPatientSession = async (pac: Paciente) => {
-    setUser(pac);
-    localStorage.setItem('cpm_user', JSON.stringify(pac));
-
-    // Busca ou cria conversa ativa
-    let { data: conv } = await supabase
-      .from('conversas')
-      .select('id')
-      .eq('paciente_id', pac.id)
-      .eq('status', 'ativa')
-      .maybeSingle();
-
-    if (!conv) {
-      const { data: newConv } = await supabase
-        .from('conversas')
-        .insert({ paciente_id: pac.id, status: 'ativa' })
-        .select('id')
-        .maybeSingle();
-      conv = newConv;
-    }
-
-    const activeConvId = conv?.id || null;
-    setConversaId(activeConvId);
-    if (activeConvId) {
-      localStorage.setItem('cpm_conv', JSON.stringify(activeConvId));
     }
   };
 
@@ -138,6 +152,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setConversaId(null);
     localStorage.removeItem('cpm_user');
     localStorage.removeItem('cpm_conv');
+  };
+
+  const refreshSession = async () => {
+    if (user?.id) {
+      await fetchActiveConversa(user.id);
+    }
   };
 
   return (
@@ -151,7 +171,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toastMsg,
         showToast,
         unreadCount,
-        setUnreadCount
+        setUnreadCount,
+        refreshSession
       }}
     >
       {children}
