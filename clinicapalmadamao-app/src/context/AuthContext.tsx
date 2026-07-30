@@ -55,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!cId) {
         const { data: newConv } = await supabase
           .from('conversas')
-          .insert({ paciente_id: Number(pacId), status: 'ativa' })
+          .upsert({ paciente_id: Number(pacId), status: 'ativa' }, { onConflict: 'paciente_id' })
           .select('id')
           .maybeSingle();
         cId = newConv?.id || null;
