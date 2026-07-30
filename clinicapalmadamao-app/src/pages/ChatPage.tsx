@@ -5,7 +5,7 @@ import { supabase } from '../services/supabase';
 import { Mensagem } from '../types';
 
 export const ChatPage: React.FC = () => {
-  const { user, conversaId, setUnreadCount } = useAuth();
+  const { user, conversaId, setUnreadCount, showToast } = useAuth();
   const [messages, setMessages] = useState<Mensagem[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -44,19 +44,20 @@ export const ChatPage: React.FC = () => {
       const { data, error } = await supabase
         .from('mensagens')
         .select('*')
-        .eq('conversa_id', conversaId)
+        .eq('conversa_id', Number(conversaId))
         .order('enviada_em', { ascending: true });
 
       if (!error && data) {
         setMessages(data);
 
-        // Marca como lidas mensagens da clínica
-        await supabase
+        // Marca como lidas mensagens da clínica em segundo plano
+        supabase
           .from('mensagens')
           .update({ lida: true })
-          .eq('conversa_id', conversaId)
+          .eq('conversa_id', Number(conversaId))
           .eq('tipo_remetente', 'clinica')
-          .eq('lida', false);
+          .eq('lida', false)
+          .then(() => {});
 
         setUnreadCount(0);
       }
@@ -87,7 +88,7 @@ export const ChatPage: React.FC = () => {
             return [...prev, newMsg];
           });
           if (newMsg.tipo_remetente === 'clinica') {
-            supabase.from('mensagens').update({ lida: true }).eq('id', newMsg.id);
+            supabase.from('mensagens').update({ lida: true }).eq('id', newMsg.id).then(() => {});
           }
         }
       )
@@ -111,12 +112,11 @@ export const ChatPage: React.FC = () => {
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = inputText.trim();
-    if (!text) return;
-
-    setInputText('');
+    if (!text || !user) return;
 
     // Demo Mode
     if (user?._isDemo || conversaId === 'demo') {
+      setInputText('');
       const newMsgDemo: Mensagem = {
         id: Date.now(),
         conversa_id: 0,
@@ -129,15 +129,48 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
-    if (!conversaId) return;
+    let targetConvId = conversaId;
 
+    // On-the-fly resolution of active conversation ID if missing
+    if (!targetConvId) {
+      try {
+        const pId = Number(user.id);
+        const { data: convList } = await supabase
+          .from('conversas')
+          .select('id')
+          .eq('paciente_id', pId)
+          .order('id', { ascending: true })
+          .limit(1);
+
+        if (convList && convList.length > 0) {
+          targetConvId = convList[0].id;
+        } else {
+          const { data: newConv } = await supabase
+            .from('conversas')
+            .insert({ paciente_id: pId, status: 'ativa' })
+            .select('id')
+            .maybeSingle();
+          if (newConv?.id) targetConvId = newConv.id;
+        }
+      } catch (err) {
+        console.error('[ChatPage] Error resolving conversa on the fly:', err);
+      }
+    }
+
+    if (!targetConvId) {
+      showToast('Não foi possível conectar à conversa com a clínica. Tente novamente.', 'error');
+      return;
+    }
+
+    setInputText('');
     setSending(true);
+
     try {
       const { data: inserted, error } = await supabase
         .from('mensagens')
         .insert({
-          conversa_id: Number(conversaId),
-          remetente_id: Number(user?.id),
+          conversa_id: Number(targetConvId),
+          remetente_id: Number(user.id),
           tipo_remetente: 'paciente',
           conteudo: text,
           lida: false,
@@ -146,15 +179,27 @@ export const ChatPage: React.FC = () => {
         .select('*')
         .single();
 
-      if (!error && inserted) {
-        setMessages((prev) => [...prev, inserted]);
+      if (error) {
+        console.error('[ChatPage] Supabase error inserting msg:', error);
+        showToast('Erro ao enviar mensagem: ' + (error.message || 'Erro no banco'), 'error');
+        setInputText(text);
+        return;
+      }
+
+      if (inserted) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === inserted.id)) return prev;
+          return [...prev, inserted];
+        });
         await supabase
           .from('conversas')
           .update({ ultima_mensagem_em: new Date().toISOString() })
-          .eq('id', conversaId);
+          .eq('id', targetConvId);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ChatPage] Error sending message:', err);
+      showToast('Erro de conexão ao enviar mensagem', 'error');
+      setInputText(text);
     } finally {
       setSending(false);
     }
@@ -177,14 +222,20 @@ export const ChatPage: React.FC = () => {
             Carregando mensagens...
           </div>
         ) : messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center text-xs text-[#6B8C82] p-8">
-            Nenhuma mensagem ainda.<br />Envie uma mensagem para a clínica!
+          <div className="h-full flex flex-col items-center justify-center text-center text-xs text-[#6B8C82] p-8 space-y-2">
+            <div className="w-12 h-12 rounded-full bg-[#E1F2EC] flex items-center justify-center text-[#0A5C4A] mx-auto mb-1">
+              <Bell size={20} />
+            </div>
+            <p className="font-bold text-slate-700 text-sm">Nenhuma mensagem ainda</p>
+            <p className="text-[11px] text-slate-500 max-w-[240px]">
+              Envie uma mensagem abaixo para iniciar o atendimento direto com a clínica.
+            </p>
           </div>
         ) : (
           messages.map((m) => {
-            const isMe = m.tipo_remetente === 'paciente';
+            const isPatient = m.tipo_remetente === 'paciente';
             const isSys = m.tipo_remetente === 'sistema';
-            const timeStr = new Date(m.enviada_em).toLocaleTimeString('pt-BR', {
+            const time = new Date(m.enviada_em).toLocaleTimeString('pt-BR', {
               hour: '2-digit',
               minute: '2-digit'
             });
@@ -193,13 +244,13 @@ export const ChatPage: React.FC = () => {
               return (
                 <div
                   key={m.id}
-                  className="bg-[#FFF8E7] text-[#B85C00] border border-[#FDDCB0] rounded-2xl rounded-tl-sm p-3.5 max-w-[88%] text-xs shadow-sm space-y-1"
+                  className="max-w-[90%] bg-amber-50 border border-amber-200/60 rounded-2xl p-3 text-amber-800 self-start space-y-1 shadow-sm text-xs"
                 >
-                  <div className="text-[10px] font-bold uppercase tracking-wider opacity-80 flex items-center gap-1">
-                    <Bell size={12} /> Lembrete da clínica
-                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-wider block text-amber-600">
+                    🔔 Aviso da Clínica
+                  </span>
                   <p className="leading-relaxed whitespace-pre-wrap">{m.conteudo.replace(/^🔔\s*/, '')}</p>
-                  <span className="text-[9px] opacity-70 block text-right font-mono mt-1">{timeStr}</span>
+                  <span className="text-[8px] text-slate-400 font-mono block text-right">{time}</span>
                 </div>
               );
             }
@@ -207,29 +258,24 @@ export const ChatPage: React.FC = () => {
             return (
               <div
                 key={m.id}
-                className={`flex flex-col max-w-[80%] text-xs ${
-                  isMe ? 'ml-auto items-end' : 'mr-auto items-start'
+                className={`max-w-[78%] rounded-2xl px-4 py-2.5 text-xs flex flex-col shadow-sm ${
+                  isPatient
+                    ? 'bg-[#0A5C4A] text-white rounded-br-none ml-auto'
+                    : 'bg-white text-slate-800 border border-slate-100 rounded-bl-none'
                 }`}
               >
-                <span className="text-[10px] text-[#6B8C82] mb-0.5 px-1 font-medium">
-                  {isMe ? 'Você' : 'Clínica Saúde'}
-                </span>
+                <p className="leading-relaxed whitespace-pre-wrap">{m.conteudo}</p>
                 <div
-                  className={`p-3 rounded-2xl leading-relaxed shadow-sm break-words ${
-                    isMe
-                      ? 'bg-[#1a6b54] text-white rounded-tr-sm'
-                      : 'bg-white text-[#0D1F1A] border border-[#D4E8E1] rounded-tl-sm'
+                  className={`text-[9px] font-mono mt-1 text-right flex items-center justify-end gap-1 ${
+                    isPatient ? 'text-emerald-100/70' : 'text-slate-400'
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{m.conteudo}</p>
-                  <div
-                    className={`text-[9px] flex items-center justify-end gap-1 mt-1 font-mono ${
-                      isMe ? 'text-white/75' : 'text-[#6B8C82]'
-                    }`}
-                  >
-                    <span>{timeStr}</span>
-                    {isMe && (m.lida ? <CheckCheck size={12} /> : <Check size={12} />)}
-                  </div>
+                  <span>{time}</span>
+                  {isPatient && (
+                    <span>
+                      {m.lida ? <CheckCheck size={12} className="text-emerald-300 inline" /> : <Check size={12} className="inline" />}
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -238,23 +284,23 @@ export const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Box */}
+      {/* Message Input Bar */}
       <form
         onSubmit={handleSend}
-        className="p-3 bg-white border-t border-[#D4E8E1] flex items-center gap-2 shrink-0 shadow-md"
+        className="p-3 bg-white border-t border-[#D3E8E1] flex items-center gap-2 shrink-0 shadow-lg"
       >
         <textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Escreva uma mensagem..."
+          placeholder="Digite sua mensagem..."
           rows={1}
-          className="flex-1 bg-[#F2FAF7] border border-[#D4E8E1] rounded-2xl px-4 py-2 text-xs text-[#0D1F1A] focus:outline-none focus:border-[#0F7A62] resize-none max-h-20 leading-normal font-sans"
+          className="flex-1 bg-[#F2FAF7] border border-[#C5E3D9] rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#0A5C4A] resize-none max-h-20 scrollbar-thin"
         />
         <button
           type="submit"
           disabled={!inputText.trim() || sending}
-          className="w-9 h-9 rounded-full bg-[#0A5C4A] text-white flex items-center justify-center shrink-0 hover:bg-[#0F7A62] transition-transform active:scale-95 disabled:opacity-40 cursor-pointer shadow-md"
+          className="w-9 h-9 rounded-xl bg-[#0A5C4A] hover:bg-[#074739] text-white flex items-center justify-center shrink-0 shadow-md transition-all active:scale-95 disabled:opacity-40 cursor-pointer"
         >
           <Send size={15} />
         </button>
