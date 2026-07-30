@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0A5C4A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Clínica">
+<!-- Manifest inline — não depende de arquivo externo, funciona no GitHub Pages -->
+<!-- Favicon inline SVG — sem arquivo externo -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230A5C4A'/><text x='16' y='22' font-size='18' font-weight='bold' text-anchor='middle' fill='%231DC99A'>C</text></svg>" type="image/svg+xml">
+<!-- Manifest sem ícone externo — start_url relativo ao repositório GitHub Pages -->
+<script>
+(function() {
+  // Gera ícone PNG via canvas (evita problemas com SVG em manifests)
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 192;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0A5C4A';
+    ctx.fillRect(0, 0, 192, 192);
+    ctx.strokeStyle = '#1DC99A';
+    ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.arc(96, 96, 60, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#1DC99A';
+    ctx.font = 'bold 88px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('C', 96, 100);
+    const icon = c.toDataURL('image/png');
+
+    // start_url usa o pathname real da página (funciona no GitHub Pages)
+    const startUrl = './';
+    
+    const manifest = JSON.stringify({
+      name: 'Clínica Saúde',
+      short_name: 'Clínica',
+      start_url: location.origin + location.pathname,
+      scope: location.origin + '/',
+      display: 'standalone',
+      background_color: '#0A5C4A',
+      theme_color: '#0A5C4A',
+      orientation: 'portrait',
+      icons: [
+        { src: icon, sizes: '192x192', type: 'image/png', purpose: 'any maskable' }
+      ]
+    });
+    const blob = new Blob([manifest], { type: 'application/manifest+json' });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement('link');
+    link.rel = 'manifest'; link.href = url;
+    document.head.appendChild(link);
+  } catch(e) { console.warn('Manifest não gerado:', e.message); }
+})();
+</script>
+<title>Clínica — Mensagens</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+
+<!-- ══════════════════════════════════════════════════════
+     CONFIGURAÇÃO — substitua pelos seus valores reais
+     ══════════════════════════════════════════════════════ -->
+<script>
+  const SUPABASE_URL    = 'https://ezkfnbrlqnruymhhfeei.supabase.co';
+  const SUPABASE_ANON   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6a2ZuYnJscW5ydXltaGhmZWVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMjg1MzAsImV4cCI6MjA5MDgwNDUzMH0.llrWSk5Kz-UvTPWY5fpeO7QD-aFaobcvAP9FxH8PhB4';
+  const FIREBASE_VAPID  = 'BFsT-vnO-L56fZhkaNScX8sxlkbGEwkTQhw5_4o1UvDX_JqXNnmFLHzEoMHcTJzUDPNRil4nqmVaKOuMsiGgi7w'; // Project Settings → Cloud Messaging → Web Push certificates
+</script>
+<!-- ══════════════════════════════════════════════════════ -->
+
+<!-- Supabase JS v2 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- Firebase App + Messaging -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+
+<style>
+  :root {
+    --green: #0A5C4A; --green-mid: #0F7A62; --green-light: #E8F5F1;
+    --green-pale: #F2FAF7; --accent: #1DC99A; --text: #0D1F1A;
+    --muted: #6B8C82; --border: #D4E8E1; --white: #FFFFFF;
+    --warn-bg: #FFF8E7; --warn: #B85C00; --radius: 18px; --radius-sm: 10px;
+    --shadow: 0 2px 16px rgba(10,92,74,0.10);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--green-pale); color: var(--text);
+    min-height: 100dvh; display: flex; flex-direction: column; max-width: 430px; margin: 0 auto; overflow-x: hidden; }
+
+  /* LOGIN */
+  #screen-login { min-height: 100dvh; display: flex; flex-direction: column; background: var(--green); position: relative; overflow: hidden; }
+  .login-bg { position: absolute; inset: 0;
+    background: radial-gradient(ellipse 120% 60% at 50% -10%, #1DC99A22, transparent),
+                radial-gradient(ellipse 80% 80% at 110% 110%, #0F3D2E, transparent); }
+  .login-top { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 3rem 2rem 2rem; position: relative; z-index: 1; }
+  .logo-ring { width: 80px; height: 80px; border-radius: 50%; background: rgba(29,201,154,0.15);
+    border: 1.5px solid rgba(29,201,154,0.3); display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; }
+  .login-top h1 { font-family: 'DM Serif Display', serif; font-size: 2rem; color: #fff; text-align: center; margin-bottom: 0.5rem; }
+  .login-top p { font-size: 0.9rem; color: rgba(255,255,255,0.6); text-align: center; }
+  .login-card { background: var(--white); border-radius: 28px 28px 0 0; padding: 2rem 1.5rem 2.5rem; position: relative; z-index: 1; }
+  .login-card h2 { font-size: 1.15rem; font-weight: 600; margin-bottom: 1.5rem; }
+  .field { margin-bottom: 1rem; }
+  .field label { display: block; font-size: 0.78rem; font-weight: 500; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.4rem; }
+  .field input { width: 100%; padding: 0.85rem 1rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif; font-size: 1rem; color: var(--text); outline: none; transition: border-color 0.2s; }
+  .field input:focus { border-color: var(--green-mid); }
+  .btn-primary { width: 100%; padding: 1rem; background: var(--green); color: #fff; border: none;
+    border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 1rem; font-weight: 600;
+    cursor: pointer; margin-top: 0.5rem; transition: background 0.2s, transform 0.1s; }
+  .btn-primary:active { transform: scale(0.98); }
+  .login-error { color: #dc2626; font-size: 0.82rem; margin-top: 0.5rem; display: none; }
+
+  /* APP */
+  #app { display: none; flex-direction: column; min-height: 100dvh; }
+  .app-header { background: var(--green); padding: 3rem 1.25rem 1rem; color: #fff; position: sticky; top: 0; z-index: 100; }
+  .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .header-user { display: flex; align-items: center; gap: 0.75rem; }
+  .avatar-sm { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.15);
+    display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 600; color: #fff; }
+  .header-name { font-size: 0.9rem; color: rgba(255,255,255,0.9); font-weight: 500; }
+  .header-sub { font-size: 0.75rem; color: rgba(255,255,255,0.5); }
+  .notif-btn { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.12);
+    border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; position: relative; }
+  .notif-btn svg { width: 20px; height: 20px; stroke: #fff; fill: none; }
+  .notif-badge { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); border: 1.5px solid var(--green); display: none; }
+  .nav-tabs { display: flex; background: rgba(0,0,0,0.15); border-radius: 12px; padding: 3px; }
+  .nav-tab { flex: 1; padding: 0.5rem; border: none; background: transparent; color: rgba(255,255,255,0.6);
+    font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 500; cursor: pointer;
+    border-radius: 10px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.35rem; }
+  .nav-tab svg { width: 14px; height: 14px; fill: none; stroke: currentColor; }
+  .nav-tab.active { background: var(--white); color: var(--green); }
+  .app-content { flex: 1; overflow-y: auto; padding: 1.25rem; }
+
+  /* CARDS */
+  .card { background: var(--white); border-radius: var(--radius); padding: 1.1rem 1.25rem;
+    margin-bottom: 0.75rem; box-shadow: var(--shadow); }
+  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+  .card-title { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .card-link { font-size: 0.78rem; color: var(--green-mid); font-weight: 500; cursor: pointer; }
+
+  /* NOTIF ITEMS */
+  .notif-item { display: flex; gap: 0.9rem; align-items: flex-start; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .notif-icon.green { background: var(--green-light); }
+  .notif-icon.warn  { background: var(--warn-bg); }
+  .notif-icon svg { width: 16px; height: 16px; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .notif-text strong { font-size: 0.88rem; font-weight: 600; display: block; margin-bottom: 0.15rem; }
+  .notif-text span { font-size: 0.8rem; color: var(--muted); line-height: 1.4; display: block; }
+  .notif-time { font-size: 0.72rem; color: var(--muted); white-space: nowrap; margin-top: 2px; }
+  .notif-unread { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 4px; flex-shrink: 0; }
+
+  /* PRÓXIMA CONSULTA */
+  .appt-card { background: var(--green); border-radius: var(--radius); padding: 1.25rem; color: #fff;
+    margin-bottom: 1rem; position: relative; overflow: hidden; }
+  .appt-card::before { content: ''; position: absolute; top: -30px; right: -30px; width: 120px; height: 120px;
+    border-radius: 50%; background: rgba(255,255,255,0.05); }
+  .appt-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.55); margin-bottom: 0.4rem; }
+  .appt-date { font-family: 'DM Serif Display', serif; font-size: 1.5rem; margin-bottom: 0.2rem; }
+  .appt-info { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-bottom: 1rem; }
+  .appt-actions { display: flex; gap: 0.5rem; }
+  .appt-btn { padding: 0.45rem 0.9rem; border-radius: 8px; font-family: 'DM Sans', sans-serif;
+    font-size: 0.78rem; font-weight: 500; cursor: pointer; border: none; }
+  .appt-btn.confirm { background: var(--accent); color: var(--green); }
+  .appt-btn.cancel  { background: rgba(255,255,255,0.15); color: #fff; }
+  .no-appt { text-align: center; padding: 1.5rem; color: var(--muted); font-size: 0.88rem; }
+
+  /* CHAT */
+  #content-1 { display: none; flex-direction: column; height: calc(100dvh - 144px); overflow: hidden; }
+  #content-1.active-chat { display: flex; }
+  #content-chat { display: none; flex-direction: column; height: calc(100dvh - 144px); }
+  #content-chat.active { display: flex; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 1rem 1rem; display: flex; flex-direction: column; gap: 0.3rem;
+    background: var(--green-pale); }
+  .msg-group { display: flex; flex-direction: column; gap: 0.2rem; }
+  .msg-bubble { max-width: 75%; padding: 0.55rem 0.85rem 0.45rem; border-radius: 16px; font-size: 0.93rem;
+    line-height: 1.4; word-break: break-word; position: relative; }
+  .msg-bubble.from-clinic { background: var(--white); color: var(--text); border-top-left-radius: 4px;
+    align-self: flex-start; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .msg-bubble.from-me { background: #1a6b54; color: #fff; border-top-right-radius: 4px; align-self: flex-end; }
+  .msg-bubble.lembrete { background: var(--warn-bg); color: var(--warn); border: 1px solid #FDDCB0;
+    border-top-left-radius: 4px; align-self: flex-start; max-width: 88%; }
+  .lembrete-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 600; margin-bottom: 0.25rem; opacity: 0.8; }
+  .msg-sender { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.15rem; padding: 0 0.25rem; }
+  .msg-sender.right { text-align: right; }
+  .msg-time { font-size: 0.65rem; opacity: 0.6; margin-top: 0.15rem; display: block; text-align: right; white-space: nowrap; }
+  .msg-bubble.from-me .msg-time { color: rgba(255,255,255,0.75); }
+  .msg-bubble.from-clinic .msg-time { color: var(--muted); }
+  .msg-bubble.lembrete .msg-time { color: var(--warn); opacity: 0.6; }
+  .date-sep { text-align: center; font-size: 0.72rem; color: var(--muted); margin: 0.75rem 0;
+    display: flex; align-items: center; gap: 0.75rem; }
+  .date-sep::before, .date-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .typing-indicator { align-self: flex-start; background: var(--white); border-radius: 16px; border-top-left-radius: 4px;
+    padding: 0.6rem 0.85rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: none; margin: 0 1rem 0.5rem; }
+  .typing-dots { display: flex; gap: 4px; }
+  .typing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bounce 1.2s infinite; }
+  .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+  .chat-input-area { padding: 0.6rem 0.85rem 0.85rem; background: var(--white); border-top: 1px solid var(--border);
+    display: flex; gap: 0.6rem; align-items: flex-end; flex-shrink: 0; }
+  .chat-input { flex: 1; background: var(--green-pale); border: 1.5px solid var(--border); border-radius: 22px;
+    padding: 0.6rem 1rem; font-family: 'DM Sans', sans-serif; font-size: 0.92rem; color: var(--text);
+    outline: none; resize: none; max-height: 100px; line-height: 1.4; transition: border-color 0.2s; }
+  .chat-input:focus { border-color: var(--green-mid); }
+  .send-btn { width: 44px; height: 44px; border-radius: 50%; background: var(--green); border: none;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: transform 0.1s; }
+  .send-btn:active { transform: scale(0.92); }
+  .send-btn svg { width: 20px; height: 20px; stroke: #fff; fill: none; }
+  .send-btn:disabled { opacity: 0.4; }
+
+  /* ESTADO DE CONEXÃO */
+  .conn-bar { background: #fbbf24; color: #78350f; font-size: 0.75rem; font-weight: 500;
+    text-align: center; padding: 0.35rem; display: none; }
+  .conn-bar.show { display: block; }
+
+  /* LOADING */
+  .loading-spinner { display: flex; align-items: center; justify-content: center; padding: 2rem; color: var(--muted); }
+  .spinner { width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--green);
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 0.75rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* PERFIL */
+  .profile-hero { background: var(--green); border-radius: var(--radius); padding: 1.5rem;
+    color: #fff; display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+  .profile-avatar { width: 60px; height: 60px; border-radius: 50%; background: rgba(255,255,255,0.15);
+    display: flex; align-items: center; justify-content: center; font-size: 1.4rem; font-weight: 600; flex-shrink: 0; }
+  .menu-item { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; background: var(--white);
+    border-radius: var(--radius-sm); margin-bottom: 0.5rem; cursor: pointer; box-shadow: var(--shadow); }
+  .menu-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--green-light);
+    display: flex; align-items: center; justify-content: center; }
+  .menu-icon svg { width: 18px; height: 18px; stroke: var(--green); fill: none; }
+  .menu-label { flex: 1; font-size: 0.92rem; font-weight: 500; }
+
+  /* TOAST */
+  .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: #fff; padding: 0.65rem 1.25rem; border-radius: 50px;
+    font-size: 0.85rem; font-weight: 500; opacity: 0; transition: all 0.3s; z-index: 999; white-space: nowrap; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.success { background: var(--green); }
+  .toast.error   { background: #dc2626; }
+
+  /* INSTALL BANNER */
+  .install-banner { background: var(--green-light); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 1rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem; }
+  .install-banner svg { width: 22px; height: 22px; stroke: var(--green-mid); fill: none; flex-shrink: 0; }
+  .install-banner-text { flex: 1; font-size: 0.82rem; color: var(--green); line-height: 1.4; }
+  .install-banner-text strong { display: block; margin-bottom: 0.15rem; }
+  .install-btn { background: var(--green); color: #fff; border: none; border-radius: 8px;
+    padding: 0.4rem 0.75rem; font-family: 'DM Sans', sans-serif; font-size: 0.78rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<!-- BARRA DE RECONEXÃO -->
+<div class="conn-bar" id="conn-bar">Reconectando ao servidor...</div>
+
+<!-- LOGIN -->
+<div id="screen-login">
+  <div class="login-bg"></div>
+  <div class="login-top">
+    <div class="logo-ring">
+      <svg viewBox="0 0 38 38" fill="none" style="width:38px;height:38px">
+        <circle cx="19" cy="19" r="14" stroke="#1DC99A" stroke-width="1.5"/>
+        <path d="M19 12v7l4 4" stroke="#1DC99A" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <h1>Clínica<br>na palma da mão</h1>
+    <p>Mensagens e consultas em tempo real</p>
+  </div>
+  <div class="login-card">
+    <h2>Entrar na sua conta</h2>
+    <div class="field">
+      <label>E-mail</label>
+      <input type="email" id="login-email" placeholder="seu@email.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>Senha de acesso</label>
+      <input type="password" id="login-pass" placeholder="Senha fornecida pela clínica" autocomplete="current-password">
+    </div>
+    <p style="font-size:0.75rem;color:var(--muted);margin-top:-0.5rem;margin-bottom:0.75rem">
+      Sua senha foi definida pela clínica no seu cadastro.
+    </p>
+    <div class="login-error" id="login-error"></div>
+    <button class="btn-primary" id="login-btn" onclick="doLogin()">Entrar</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="app-header">
+    <div class="header-top">
+      <div class="header-user">
+        <div class="avatar-sm" id="header-avatar">--</div>
+        <div>
+          <div class="header-name" id="header-name">Carregando...</div>
+          <div class="header-sub">Paciente</div>
+        </div>
+      </div>
+      <button class="notif-btn" id="notif-btn" onclick="switchTabByIndex(0)">
+        <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span class="notif-badge" id="notif-badge"></span>
+      </button>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" id="tab-0" onclick="switchTab(0)">
+        <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Início
+      </button>
+      <button class="nav-tab" id="tab-1" onclick="switchTab(1)">
+        <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Mensagens
+        <span id="unread-badge" style="background:var(--accent);color:var(--green);font-size:0.6rem;font-weight:700;padding:1px 5px;border-radius:9px;display:none">0</span>
+      </button>
+      <button class="nav-tab" id="tab-2" onclick="switchTab(2)">
+        <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Perfil
+      </button>
+    </div>
+  </div>
+
+  <!-- INÍCIO -->
+  <div class="app-content" id="content-0">
+    <div class="install-banner" id="install-banner">
+      <svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v13M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      <div class="install-banner-text">
+        <strong>Instale o app no celular</strong>
+        Adicione à tela inicial para notificações
+      </div>
+      <button class="install-btn" onclick="installApp()">Instalar</button>
+    </div>
+    <div id="appt-section"><div class="loading-spinner"><div class="spinner"></div> Carregando...</div></div>
+    <div class="card" id="notif-card">
+      <div class="card-header">
+        <span class="card-title">Avisos recentes</span>
+        <span class="card-link" onclick="switchTab(1)">Ver chat →</span>
+      </div>
+      <div id="notif-list"><div class="loading-spinner"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div id="content-1" style="display:none;flex-direction:column;height:calc(100dvh - 144px);overflow:hidden">
+    <div class="chat-messages" id="chat-messages">
+      <div class="loading-spinner"><div class="spinner"></div> Carregando mensagens...</div>
+    </div>
+    <div class="typing-indicator" id="typing-indicator"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+    <div class="chat-input-area">
+      <textarea class="chat-input" id="msg-input" placeholder="Escreva uma mensagem..." rows="1"
+        oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendMessage()">
+        <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- PERFIL -->
+  <div class="app-content" id="content-2" style="display:none">
+    <div class="profile-hero">
+      <div class="profile-avatar" id="profile-avatar">--</div>
+      <div>
+        <div style="font-family:'DM Serif Display',serif;font-size:1.2rem" id="profile-name">--</div>
+        <div style="font-size:0.8rem;color:rgba(255,255,255,0.6)" id="profile-email">--</div>
+      </div>
+    </div>
+    <div class="menu-item" onclick="requestPushPermission()">
+      <div class="menu-icon"><svg viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
+      <span class="menu-label">Ativar notificações push</span>
+      <span style="color:var(--muted)">›</span>
+    </div>
+    <div class="menu-item" onclick="doLogout()">
+      <div class="menu-icon" style="background:#FEE2E2"><svg viewBox="0 0 24 24" stroke="#DC2626" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
+      <span class="menu-label" style="color:#DC2626">Sair da conta</span>
+      <span style="color:var(--muted)">›</span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  INICIALIZAÇÃO SUPABASE
+// ═══════════════════════════════════════════════════════
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ═══════════════════════════════════════════════════════
+//  ESTADO GLOBAL
+// ═══════════════════════════════════════════════════════
+let currentUser    = null;
+let pacienteId     = null;  // UUID do paciente na tabela pacientes
+let conversaId     = null;  // UUID da conversa ativa
+let realtimeSub    = null;
+let unreadCount    = 0;
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+
+// ═══════════════════════════════════════════════════════
+//  LOGIN
+// ═══════════════════════════════════════════════════════
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  const pass  = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('login-btn');
+  errEl.style.display = 'none';
+
+  if (!email) { errEl.textContent = 'Informe seu e-mail.'; errEl.style.display = 'block'; return; }
+  if (!pass)  { errEl.textContent = 'Informe sua senha.';  errEl.style.display = 'block'; return; }
+
+  btn.textContent = 'Entrando...'; btn.disabled = true;
+
+  // ── Modo demo (senha: demo1234) — não consulta o banco ──
+  if (pass === 'demo1234') {
+    btn.textContent = 'Entrar'; btn.disabled = false;
+    await initApp({ id: 'demo', email, nome: email.split('@')[0], _isDemo: true });
+    return;
+  }
+
+  // ── Autenticação pela tabela pacientes ──────────────────────
+  // Passo 1: busca só campos garantidamente existentes
+  const { data: pacBase, error: errBase } = await sb
+    .from('pacientes')
+    .select('id, nome, email')
+    .eq('email', email)
+    .maybeSingle()
+
+  if (errBase || !pacBase) {
+    btn.textContent = 'Entrar'; btn.disabled = false;
+    const msg = errBase?.code === 'PGRST116'
+      ? 'E-mail não encontrado no cadastro. Verifique com a clínica.'
+      : 'Erro de conexão (' + (errBase?.code||'') + '). Tente novamente.';
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Passo 2: tenta buscar senha_chat (pode não existir ainda)
+  const { data: pacSenha } = await sb
+    .from('pacientes')
+    .select('senha_chat')
+    .eq('email', email)
+    .maybeSingle()
+
+  btn.textContent = 'Entrar'; btn.disabled = false;
+
+  const senhaCadastrada = pacSenha?.senha_chat ?? null;
+
+  // Coluna senha_chat ainda não existe → libera acesso temporário com qualquer senha
+  // (para não bloquear enquanto a clínica executa o SQL de configuração)
+  if (senhaCadastrada === null || senhaCadastrada === undefined) {
+    // Permite acesso provisório — avisar no app
+    const pac = { ...pacBase, _semSenha: true };
+    await initApp({ id: pac.id, email: pac.email, nome: pac.nome, _pac: pac });
+    return;
+  }
+
+  if (senhaCadastrada !== pass) {
+    errEl.textContent = 'Senha incorreta. Verifique com a clínica.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Login OK com senha correta
+  const pac = { ...pacBase, senha_chat: senhaCadastrada };
+
+  // ── Login OK — inicia o app com os dados já carregados ──
+  await initApp({ id: pac.id, email: pac.email, nome: pac.nome, _pac: pac });
+}
+
+function doLogout() {
+  if (realtimeSub) sb.removeChannel(realtimeSub);
+  realtimeSub = null;
+  currentUser = null; pacienteId = null; conversaId = null;
+  window._demoMode = false;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('screen-login').style.display = 'flex';
+  // Limpa os campos
+  document.getElementById('login-pass').value = '';
+  document.getElementById('chat-messages').innerHTML = '';
+}
+
+// Autenticação via tabela pacientes (senha_chat) — sem Supabase Auth
+
+// ═══════════════════════════════════════════════════════
+//  INICIALIZAR APP PÓS-LOGIN
+// ═══════════════════════════════════════════════════════
+async function initApp(user) {
+  currentUser = user;
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+
+  // ── MODO DEMO ────────────────────────────────────────
+  if (user._isDemo) {
+    const nomeDemo = (user.nome || user.email.split('@')[0])
+      .replace(/[^a-zA-ZÀ-ú ]/g,' ').trim() || 'Paciente';
+    const ini = nomeDemo.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+    document.getElementById('header-avatar').textContent  = ini;
+    document.getElementById('header-name').textContent    = nomeDemo + ' (Demo)';
+    document.getElementById('profile-avatar').textContent = ini;
+    document.getElementById('profile-name').textContent   = nomeDemo;
+    document.getElementById('profile-email').textContent  = user.email;
+    pacienteId = 'demo';
+    conversaId = 'demo';
+    window._demoMode = true;
+    loadInicioDemo();
+    loadMessagesDemo();
+    showToast('Modo demonstração ativo');
+    return;
+  }
+
+  // ── LOGIN REAL — dados do paciente já vêm do doLogin ─
+  const pac = user._pac;
+  pacienteId = pac.id;
+  console.log('PACIENTE:', pac);
+
+  // Aviso se ainda sem senha_chat configurada
+  if (pac._semSenha) {
+    showToast('Acesso provisório — peça à clínica para definir sua senha no cadastro');
+  }
+
+  const nome = pac.nome || user.email.split('@')[0];
+  const ini  = nome.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+  document.getElementById('header-avatar').textContent  = ini;
+  document.getElementById('header-name').textContent    = nome;
+  document.getElementById('profile-avatar').textContent = ini;
+  document.getElementById('profile-name').textContent   = nome;
+  document.getElementById('profile-email').textContent  = pac.email;
+
+  // Busca ou cria conversa ativa para este paciente
+  let { data: conv } = await sb
+    .from('conversas')
+    .select('id')
+    .eq('paciente_id', pacienteId)
+    .eq('status', 'ativa')
+    .maybeSingle()
+
+  if (!conv) {
+    const { data: newConv } = await sb
+      .from('conversas')
+      .insert({ paciente_id: pacienteId })
+      .select('id')
+      .maybeSingle()
+    conv = newConv;
+  }
+  
+  if (!conv || !conv.id) {
+  const { data: newConv, error } = await sb
+    .from('conversas')
+    .insert({ paciente_id: pacienteId })
+    .select('id')
+    .maybeSingle()
+
+  if (error || !newConv) {
+    showToast('Erro ao criar conversa', 'error');
+    return;
+  }
+
+  conv = newConv;
+}
+
+  conversaId = conv.id;
+
+  await loadInicio();
+  await loadMessages();
+  subscribeRealtime();
+  startChatPolling();
+  await requestPushPermissionSilent();
+}
+
+// ── DADOS DEMO ────────────────────────────────────────────────
+function loadInicioDemo() {
+  document.getElementById('install-banner').style.display = 'none';
+  document.getElementById('appt-section').innerHTML = `
+    <div class="appt-card">
+      <div class="appt-label">Próxima consulta (demo)</div>
+      <div class="appt-date">Sex, 9 de Maio</div>
+      <div class="appt-info">14:30 · Dr. Carlos Mendes · Clínica Geral</div>
+      <div class="appt-actions">
+        <button class="appt-btn confirm" onclick="showToast('Presença confirmada! ✓','success')">Confirmar presença</button>
+        <button class="appt-btn cancel"  onclick="switchTab(1)">Falar com a clínica</button>
+      </div>
+    </div>`;
+  document.getElementById('notif-list').innerHTML = `
+    <div class="notif-item">
+      <div class="notif-icon warn">
+        <svg viewBox="0 0 24 24" stroke="#B85C00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <div class="notif-text"><strong>Lembrete de consulta</strong><span>Sua consulta é na próxima sexta às 14h30. Lembre-se de trazer seus exames.</span></div>
+      <div class="notif-time">Hoje 9h</div>
+    </div>
+    <div class="notif-item">
+      <div class="notif-icon green">
+        <svg viewBox="0 0 24 24" stroke="#0F7A62" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <div class="notif-text"><strong>Consulta confirmada</strong><span>Agendamento para 09/05 às 14h30 confirmado com sucesso.</span></div>
+      <div class="notif-time">Seg 14h</div>
+    </div>`;
+}
+
+function loadMessagesDemo() {
+  const container = document.getElementById('chat-messages');
+  container.innerHTML = `
+    <div class="date-sep">Hoje — Modo Demonstração</div>
+    <div class="msg-sender">Clínica Saúde</div>
+    <div class="msg-bubble from-clinic">
+      Olá! Bem-vindo ao app da Clínica Saúde 😊 Este é o modo demonstração.
+      Para usar com dados reais, peça à clínica para cadastrar seu acesso.
+      <span class="msg-time">09:00</span>
+    </div>
+    <div class="msg-bubble lembrete">
+      <div class="lembrete-label">🔔 Lembrete automático</div>
+      Sua consulta de demonstração está agendada para <strong>09/05 às 14h30h</strong>.
+      <span class="msg-time">09:05</span>
+    </div>`;
+  // No modo demo, permite enviar mensagens localmente (sem salvar)
+  window._demoMode = true;
+}
+
+// ═══════════════════════════════════════════════════════
+//  ABA INÍCIO — próxima consulta + notificações recentes
+// ═══════════════════════════════════════════════════════
+async function loadInicio() {
+  // Próxima consulta: busca na tabela notificacoes tipo lembrete não lido ainda
+  const hoje = new Date().toISOString();
+  const { data: notifs } = await sb
+    .from('notificacoes')
+    .select('*')
+    .eq('paciente_id', pacienteId)
+    .eq('enviada', true)
+    .order('agendada_para', { ascending: false })
+    .limit(10);
+
+  // Seção de próxima consulta
+  const apptSection = document.getElementById('appt-section');
+  const lembrete = notifs?.find(n => n.tipo === 'lembrete' || n.tipo === 'confirmacao');
+  if (lembrete) {
+    const d = new Date(lembrete.agendada_para);
+    apptSection.innerHTML = `
+      <div class="appt-card">
+        <div class="appt-label">Próxima consulta</div>
+        <div class="appt-date">${d.toLocaleDateString('pt-BR',{weekday:'short',day:'numeric',month:'long'})}</div>
+        <div class="appt-info">${lembrete.corpo}</div>
+        <div class="appt-actions">
+          <button class="appt-btn confirm" onclick="showToast('Confirmado! Até lá 😊','success')">Confirmar presença</button>
+          <button class="appt-btn cancel"  onclick="switchTab(1)">Falar com a clínica</button>
+        </div>
+      </div>`;
+  } else {
+    apptSection.innerHTML = '<div class="no-appt">Nenhuma consulta agendada no momento.</div>';
+  }
+
+  // Lista de notificações recentes
+  const notifList = document.getElementById('notif-list');
+  if (!notifs || !notifs.length) { notifList.innerHTML = '<p style="font-size:0.82rem;color:var(--muted);text-align:center;padding:1rem">Nenhum aviso ainda.</p>'; return; }
+
+  notifList.innerHTML = notifs.slice(0,5).map(n => {
+    const t = new Date(n.agendada_para);
+    const ago = formatTimeAgo(t);
+    const isWarn = n.tipo === 'lembrete';
+    const iconColor = isWarn ? '#B85C00' : '#0F7A62';
+    const iconPath = isWarn
+      ? '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'
+      : '<polyline points="20 6 9 17 4 12"/>';
+    return `<div class="notif-item">
+      <div class="notif-icon ${isWarn?'warn':'green'}">
+        <svg viewBox="0 0 24 24" stroke="${iconColor}">${iconPath}</svg>
+      </div>
+      <div class="notif-text">
+        <strong>${n.titulo}</strong>
+        <span>${n.corpo}</span>
+      </div>
+      <div class="notif-time">${ago}</div>
+    </div>`;
+  }).join('');
+
+  // Badge de notificação
+  const unreadNotifs = notifs.filter(n => !n.lida_pelo_paciente).length;
+  if (unreadNotifs > 0) {
+    document.getElementById('notif-badge').style.display = 'block';
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  CHAT — carregar mensagens do Supabase
+// ═══════════════════════════════════════════════════════
+async function loadMessages() {
+  if (!conversaId) return;
+  const { data: msgs, error } = await sb
+    .from('mensagens')
+    .select('*')
+    .eq('conversa_id', conversaId)
+    .order('enviada_em', { ascending: true });
+
+  renderMessages(msgs || []);
+
+  // Marca não lidas da clínica como lidas
+  await sb.from('mensagens')
+    .update({ lida: true })
+    .eq('conversa_id', conversaId)
+    .eq('tipo_remetente', 'clinica')
+    .eq('lida', false);
+}
+
+async function loadMessagesSilent() {
+  if (!conversaId || conversaId === 'demo') return;
+  const { data: msgs, error } = await sb
+    .from('mensagens')
+    .select('*')
+    .eq('conversa_id', conversaId)
+    .order('enviada_em', { ascending: true });
+
+  if (!error && msgs) {
+    renderMessages(msgs);
+  }
+}
+
+function startChatPolling() {
+  if (window._chatPollInterval) clearInterval(window._chatPollInterval);
+  window._chatPollInterval = setInterval(() => {
+    if (conversaId && conversaId !== 'demo') {
+      loadMessagesSilent();
+    }
+  }, 3000);
+}
+
+function renderMessages(msgs) {
+  const container = document.getElementById('chat-messages');
+  if (!msgs.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:0.85rem;padding:2rem">Nenhuma mensagem ainda.<br>Envie uma mensagem para a clínica!</div>';
+    return;
+  }
+
+  let html = '';
+  let lastDate = '';
+  let lastSender = '';
+  let unread = 0;
+
+  msgs.forEach(msg => {
+    const d     = new Date(msg.enviada_em);
+    const dateStr = d.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' });
+    const timeStr = d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    const isMe    = msg.tipo_remetente === 'paciente';
+    const isReminder = msg.tipo_remetente === 'sistema';
+
+    if (dateStr !== lastDate) {
+      html += `<div class="date-sep">${dateStr}</div>`;
+      lastDate = dateStr; lastSender = '';
+    }
+
+    if (isReminder) {
+      html += `<div class="msg-bubble lembrete">
+        <div class="lembrete-label">🔔 Lembrete da clínica</div>
+        ${escapeHtml(msg.conteudo)}
+        <span class="msg-time">${timeStr}</span>
+      </div>`;
+    } else {
+      if (msg.tipo_remetente !== lastSender) {
+        html += `<div class="msg-sender ${isMe?'right':''}">${isMe ? 'Você' : 'Clínica Saúde'}</div>`;
+      }
+      html += `<div class="msg-bubble ${isMe?'from-me':'from-clinic'}">
+        ${escapeHtml(msg.conteudo)}
+        <span class="msg-time">${timeStr}${isMe && msg.lida ? ' ✓✓' : isMe ? ' ✓' : ''}</span>
+      </div>`;
+      if (!isMe && !msg.lida) unread++;
+    }
+    lastSender = msg.tipo_remetente;
+  });
+
+  container.innerHTML = html;
+  container.scrollTop = container.scrollHeight;
+
+  // Atualiza badge de não lidas no tab
+  unreadCount = unread;
+  const badge = document.getElementById('unread-badge');
+  if (unread > 0) { badge.textContent = unread; badge.style.display = 'inline'; }
+  else { badge.style.display = 'none'; }
+}
+
+// ═══════════════════════════════════════════════════════
+//  REAL-TIME via Supabase Channels (WebSocket)
+// ═══════════════════════════════════════════════════════
+function subscribeRealtime() {
+  if (realtimeSub) sb.removeChannel(realtimeSub);
+
+  realtimeSub = sb
+    .channel(`chat-${conversaId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'mensagens',
+      filter: `conversa_id=eq.${conversaId}`,
+    }, payload => {
+      const msg = payload.new;
+
+      // Ignora mensagens do próprio paciente — já renderizadas localmente no envio
+      if (msg.tipo_remetente === 'paciente') return;
+
+      appendMessage(msg);
+
+      // Marca como lida se o chat estiver aberto, senão incrementa badge
+      const tab1 = document.getElementById('content-1');
+      if (tab1.style.display !== 'none') {
+        sb.from('mensagens').update({ lida: true }).eq('id', msg.id);
+      } else {
+        unreadCount++;
+        const badge = document.getElementById('unread-badge');
+        badge.textContent = unreadCount; badge.style.display = 'inline';
+      }
+    })
+    .subscribe((status) => {
+      const bar = document.getElementById('conn-bar');
+      console.log('REALTIME STATUS:', status);
+      console.log('CONVERSA ID:', conversaId);
+      switch (status) {
+        case 'SUBSCRIBED':
+          bar.classList.remove('show');
+          break;
+        case 'CHANNEL_ERROR':
+        case 'TIMED_OUT':
+          bar.classList.add('show');
+          break;
+      }
+    });
+}
+
+function appendMessage(msg) {
+  const container = document.getElementById('chat-messages');
+  // Remove mensagem de placeholder se existir
+  const placeholder = container.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+
+  const d       = new Date(msg.enviada_em);
+  const timeStr = d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  const isMe    = msg.tipo_remetente === 'paciente';
+  const isSystem= msg.tipo_remetente === 'sistema';
+
+  const div = document.createElement('div');
+  if (isSystem) {
+    div.className = 'msg-bubble lembrete';
+    div.innerHTML = `<div class="lembrete-label">🔔 Lembrete da clínica</div>${escapeHtml(msg.conteudo)}<span class="msg-time">${timeStr}</span>`;
+  } else {
+    div.className = `msg-bubble ${isMe?'from-me':'from-clinic'}`;
+    div.innerHTML = `${escapeHtml(msg.conteudo)}<span class="msg-time">${timeStr}</span>`;
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════
+//  ENVIAR MENSAGEM
+// ═══════════════════════════════════════════════════════
+async function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text  = input.value.trim();
+  if (!text) return;
+
+  const btn = document.getElementById('send-btn');
+  btn.disabled = true;
+
+  // ── Modo demo: renderiza localmente sem salvar ──
+  if (window._demoMode || conversaId === 'demo') {
+    const container = document.getElementById('chat-messages');
+    const now = new Date();
+    const ts  = now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
+    const div = document.createElement('div');
+    div.className = 'msg-bubble from-me';
+    div.innerHTML = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      + '<span class="msg-time">' + ts + ' ✓</span>';
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    input.value = ''; input.style.height = 'auto';
+    btn.disabled = false;
+    // Resposta automática demo após 1.5s
+    setTimeout(() => {
+      const r = document.createElement('div');
+      r.className = 'msg-bubble from-clinic';
+      r.innerHTML = 'Obrigado pela mensagem! Nossa equipe responderá em breve 😊'
+        + '<span class="msg-time">' + new Date().getHours() + ':' + String(new Date().getMinutes()).padStart(2,'0') + '</span>';
+      container.appendChild(r);
+      container.scrollTop = container.scrollHeight;
+    }, 1500);
+    return;
+  }
+
+  // ── Modo real: salva no Supabase ──
+  if (!conversaId) { btn.disabled = false; return; }
+
+  // Renderiza a mensagem localmente imediatamente (optimistic UI)
+  const now = new Date();
+  const ts  = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const container = document.getElementById('chat-messages');
+  const divOpt = document.createElement('div');
+  divOpt.className = 'msg-bubble from-me';
+  divOpt.innerHTML = escapeHtml(text) + '<span class="msg-time">' + ts + ' ✓</span>';
+  container.appendChild(divOpt);
+  container.scrollTop = container.scrollHeight;
+  input.value = ''; input.style.height = 'auto';
+
+  const { error } = await sb.from('mensagens').insert({
+    conversa_id   : Number(conversaId),
+    remetente_id  : Number(currentUser.id),
+    tipo_remetente: 'paciente',
+    conteudo      : text,
+    lida          : false,
+    enviada_em    : now.toISOString()
+  });
+  console.log('ERRO INSERT:', error);
+  if (error) {
+    divOpt.remove();
+    input.value = text;
+    showToast('Erro ao enviar. Tente novamente.', 'error');
+  } else {
+    await sb.from('conversas').update({ ultima_mensagem_em: now.toISOString() }).eq('id', conversaId);
+  }
+  btn.disabled = false;
+}
+
+// ═══════════════════════════════════════════════════════
+//  PUSH NOTIFICATIONS — Firebase
+// ═══════════════════════════════════════════════════════
+async function requestPushPermissionSilent() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    await saveFcmToken();
+  }
+}
+
+async function requestPushPermission() {
+  if (!('Notification' in window)) { showToast('Seu navegador não suporta notificações', 'error'); return; }
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') {
+    await saveFcmToken();
+    showToast('Notificações ativadas! ✓', 'success');
+  } else {
+    showToast('Permissão de notificação negada', 'error');
+  }
+}
+
+async function saveFcmToken() {
+  if (!pacienteId) return;
+  try {
+    // Inicializa Firebase — substitua com sua config real
+    const firebaseConfig = {
+      apiKey           : 'SUA_API_KEY',
+      authDomain       : 'SEU_PROJETO.firebaseapp.com',
+      projectId        : 'SEU_PROJETO',
+      storageBucket    : 'SEU_PROJETO.appspot.com',
+      messagingSenderId: 'SEU_SENDER_ID',
+      appId            : 'SEU_APP_ID',
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const messaging = firebase.messaging();
+    const token = await messaging.getToken({ vapidKey: FIREBASE_VAPID });
+    if (token) {
+      await sb.from('pacientes').update({ fcm_token: token }).eq('id', pacienteId);
+    }
+  } catch(e) {
+    console.warn('FCM token não obtido (modo demo):', e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  NAVEGAÇÃO
+// ═══════════════════════════════════════════════════════
+let currentTab = 0;
+function switchTab(i) {
+  currentTab = i;
+  [0,1,2].forEach(j => {
+    document.getElementById(`tab-${j}`).classList.toggle('active', j === i);
+    const el = document.getElementById(`content-${j}`);
+    if (el) el.style.display = j === i ? (j === 1 ? 'flex' : 'block') : 'none';
+  });
+  if (i === 1) {
+    // Marca como lidas ao abrir o chat e recarrega mensagens da clínica
+    unreadCount = 0;
+    document.getElementById('unread-badge').style.display = 'none';
+    if (conversaId) {
+      loadMessages();
+    }
+  }
+}
+function switchTabByIndex(i) { switchTab(i); }
+
+// ═══════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+function formatTimeAgo(d) {
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff/60000);
+  if (mins < 1)  return 'agora';
+  if (mins < 60) return `${mins}min`;
+  const hrs = Math.floor(mins/60);
+  if (hrs < 24)  return `${hrs}h`;
+  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+}
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = `toast ${type}`;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+function installApp() {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
+  } else {
+    showToast('Menu do navegador → "Adicionar à tela inicial"');
+  }
+}
+</script>
+</body>
+</html>
