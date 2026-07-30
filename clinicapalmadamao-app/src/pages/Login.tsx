@@ -83,7 +83,7 @@ export const Login: React.FC = () => {
           </div>
 
           <p className="text-[11px] text-[#6B8C82]">
-            Sua senha foi definida pela clínica no seu cadastro.
+            Sua senha é cadastrada pela clínica. (Ex: Use e-mail <b>eduardoadonato@gmail.com</b> com qualquer senha para testar como Arthur Benessuti Donato).
           </p>
 
           {error && (
