@@ -43,10 +43,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return 'demo';
     }
     try {
+      const pId = Number(pacId);
       let { data: convList } = await supabase
         .from('conversas')
         .select('id')
-        .eq('paciente_id', Number(pacId))
+        .eq('paciente_id', pId)
         .order('id', { ascending: true })
         .limit(1);
 
@@ -55,10 +56,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!cId) {
         const { data: newConv } = await supabase
           .from('conversas')
-          .upsert({ paciente_id: Number(pacId), status: 'ativa' }, { onConflict: 'paciente_id' })
+          .insert([{ paciente_id: pId, status: 'ativa' }])
           .select('id')
           .maybeSingle();
-        cId = newConv?.id || null;
+
+        if (newConv?.id) {
+          cId = newConv.id;
+        } else {
+          const { data: retryList } = await supabase
+            .from('conversas')
+            .select('id')
+            .eq('paciente_id', pId)
+            .limit(1);
+          cId = retryList && retryList.length > 0 ? retryList[0].id : null;
+        }
       }
 
       if (cId) {

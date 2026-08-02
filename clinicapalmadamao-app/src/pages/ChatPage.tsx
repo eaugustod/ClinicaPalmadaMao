@@ -14,8 +14,8 @@ export const ChatPage: React.FC = () => {
 
   // Load conversation messages
   const fetchMessages = async (silent = false) => {
-    if (!conversaId || conversaId === 'demo') {
-      if (user?._isDemo && !silent) {
+    if (conversaId === 'demo' || user?._isDemo) {
+      if (!silent) {
         setMessages([
           {
             id: 1,
@@ -39,12 +39,46 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
+    let activeCId = conversaId;
+
+    // Se conversaId ainda não foi resolvido no contexto, tenta buscar/criar no Supabase
+    if (!activeCId && user?.id) {
+      try {
+        const pId = Number(user.id);
+        const { data: convList } = await supabase
+          .from('conversas')
+          .select('id')
+          .eq('paciente_id', pId)
+          .order('id', { ascending: true })
+          .limit(1);
+
+        if (convList && convList.length > 0) {
+          activeCId = convList[0].id;
+        } else {
+          const { data: newConv } = await supabase
+            .from('conversas')
+            .insert([{ paciente_id: pId, status: 'ativa' }])
+            .select('id')
+            .maybeSingle();
+
+          if (newConv?.id) activeCId = newConv.id;
+        }
+      } catch (err) {
+        console.error('[ChatPage] Error resolving conversa on load:', err);
+      }
+    }
+
+    if (!activeCId) {
+      if (!silent) setLoading(false);
+      return;
+    }
+
     if (!silent) setLoading(true);
     try {
       const { data, error } = await supabase
         .from('mensagens')
         .select('*')
-        .eq('conversa_id', Number(conversaId))
+        .eq('conversa_id', Number(activeCId))
         .order('enviada_em', { ascending: true });
 
       if (!error && data) {
@@ -54,7 +88,7 @@ export const ChatPage: React.FC = () => {
         supabase
           .from('mensagens')
           .update({ lida: true })
-          .eq('conversa_id', Number(conversaId))
+          .eq('conversa_id', Number(activeCId))
           .eq('tipo_remetente', 'clinica')
           .eq('lida', false)
           .then(() => {});
@@ -70,7 +104,7 @@ export const ChatPage: React.FC = () => {
 
   useEffect(() => {
     fetchMessages();
-  }, [conversaId]);
+  }, [conversaId, user?.id]);
 
   // Realtime subscription + Polling fallback every 3 seconds
   useEffect(() => {
