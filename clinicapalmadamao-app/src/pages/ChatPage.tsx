@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bell, Check, CheckCheck } from 'lucide-react';
+import { Send, Bell, Check, CheckCheck, Paperclip, FileText, X, Download, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import { Mensagem } from '../types';
@@ -8,9 +8,13 @@ export const ChatPage: React.FC = () => {
   const { user, conversaId, setUnreadCount, showToast } = useAuth();
   const [messages, setMessages] = useState<Mensagem[]>([]);
   const [inputText, setInputText] = useState('');
+  const [selectedFile, setSelectedFile] = useState<{ base64: string; name: string; type: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load conversation messages
   const fetchMessages = async (silent = false) => {
@@ -143,21 +147,50 @@ export const ChatPage: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 8 * 1024 * 1024) {
+      showToast('O arquivo selecionado é maior que 8MB.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSelectedFile({
+        base64: reader.result as string,
+        name: file.name,
+        type: file.type || 'application/octet-stream'
+      });
+    };
+    reader.readAsDataURL(file);
+
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = inputText.trim();
-    if (!text || !user) return;
+    if ((!text && !selectedFile) || !user) return;
+
+    const fileToUpload = selectedFile;
 
     // Demo Mode
     if (user?._isDemo || conversaId === 'demo') {
       setInputText('');
+      setSelectedFile(null);
       const newMsgDemo: Mensagem = {
         id: Date.now(),
         conversa_id: 0,
         tipo_remetente: 'paciente',
-        conteudo: text,
+        conteudo: text || `📎 Anexo: ${fileToUpload?.name}`,
         lida: true,
-        enviada_em: new Date().toISOString()
+        enviada_em: new Date().toISOString(),
+        anexo_url: fileToUpload?.base64 || null,
+        anexo_nome: fileToUpload?.name || null,
+        anexo_tipo: fileToUpload?.type || null
       };
       setMessages((prev) => [...prev, newMsgDemo]);
       return;
@@ -181,9 +214,10 @@ export const ChatPage: React.FC = () => {
         } else {
           const { data: newConv } = await supabase
             .from('conversas')
-            .upsert({ paciente_id: pId, status: 'ativa' }, { onConflict: 'paciente_id' })
+            .insert([{ paciente_id: pId, status: 'ativa' }])
             .select('id')
             .maybeSingle();
+
           if (newConv?.id) targetConvId = newConv.id;
         }
       } catch (err) {
@@ -197,6 +231,7 @@ export const ChatPage: React.FC = () => {
     }
 
     setInputText('');
+    setSelectedFile(null);
     setSending(true);
 
     try {
@@ -206,9 +241,12 @@ export const ChatPage: React.FC = () => {
           conversa_id: Number(targetConvId),
           remetente_id: Number(user.id),
           tipo_remetente: 'paciente',
-          conteudo: text,
+          conteudo: text || (fileToUpload ? `📎 Anexo: ${fileToUpload.name}` : ''),
           lida: false,
-          enviada_em: new Date().toISOString()
+          enviada_em: new Date().toISOString(),
+          anexo_url: fileToUpload?.base64 || null,
+          anexo_nome: fileToUpload?.name || null,
+          anexo_tipo: fileToUpload?.type || null
         })
         .select('*')
         .single();
@@ -217,6 +255,7 @@ export const ChatPage: React.FC = () => {
         console.error('[ChatPage] Supabase error inserting msg:', error);
         showToast('Erro ao enviar mensagem: ' + (error.message || 'Erro no banco'), 'error');
         setInputText(text);
+        setSelectedFile(fileToUpload);
         return;
       }
 
@@ -229,11 +268,35 @@ export const ChatPage: React.FC = () => {
           .from('conversas')
           .update({ ultima_mensagem_em: new Date().toISOString() })
           .eq('id', targetConvId);
+        
+        // 2. Gravar o anexo diretamente no PRONTUÁRIO (tabela 'historico') do paciente
+        if (fileToUpload) {
+          try {
+            await supabase.from('historico').insert({
+              pac_id: Number(user.id),
+              tipo: 'evolucao',
+              titulo: `📎 Anexo do Paciente: ${fileToUpload.name}`,
+              conteudo: {
+                texto: text ? `Mensagem do paciente: "${text}"` : `Documento/anexo enviado pelo paciente via aplicativo`,
+                anexoUrl: fileToUpload.base64,
+                anexoNome: fileToUpload.name,
+                anexoTipo: fileToUpload.type,
+                origem: 'App Clínica na Palma da Mão'
+              },
+              data: new Date().toISOString().split('T')[0],
+              fonte: 'chat',
+              status: 'Recebido'
+            });
+          } catch (histErr) {
+            console.error('[ChatPage] Erro ao gravar anexo no prontuário:', histErr);
+          }
+        }
       }
     } catch (err: any) {
       console.error('[ChatPage] Error sending message:', err);
       showToast('Erro de conexão ao enviar mensagem', 'error');
       setInputText(text);
+      setSelectedFile(fileToUpload);
     } finally {
       setSending(false);
     }
@@ -248,6 +311,24 @@ export const ChatPage: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[#F2FAF7] overflow-hidden relative">
+      {/* Modal para Visualização da Imagem Expandida */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div className="relative max-w-full max-h-full">
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute -top-10 right-0 text-white hover:text-slate-300 font-bold bg-white/10 p-2 rounded-full cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+            <img src={previewImage} alt="Anexo Expandido" className="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain" />
+          </div>
+        </div>
+      )}
+
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3.5 scrollbar-thin">
         {loading ? (
@@ -289,16 +370,60 @@ export const ChatPage: React.FC = () => {
               );
             }
 
+            const isImg = m.anexo_tipo?.startsWith('image/') || m.anexo_url?.startsWith('data:image');
+
             return (
               <div
                 key={m.id}
-                className={`max-w-[78%] rounded-2xl px-4 py-2.5 text-xs flex flex-col shadow-sm ${
+                className={`max-w-[80%] rounded-2xl p-3 text-xs flex flex-col shadow-sm ${
                   isPatient
                     ? 'bg-[#0A5C4A] text-white rounded-br-none ml-auto'
                     : 'bg-white text-slate-800 border border-slate-100 rounded-bl-none'
                 }`}
               >
-                <p className="leading-relaxed whitespace-pre-wrap">{m.conteudo}</p>
+                {/* Renderização de Anexo se existir */}
+                {m.anexo_url && (
+                  <div className="mb-2">
+                    {isImg ? (
+                      <div
+                        className="rounded-xl overflow-hidden cursor-pointer border border-black/10 hover:opacity-90 transition-opacity"
+                        onClick={() => setPreviewImage(m.anexo_url || null)}
+                      >
+                        <img src={m.anexo_url} alt={m.anexo_nome || 'Anexo'} className="max-h-48 w-full object-cover rounded-xl" />
+                      </div>
+                    ) : (
+                      <div className={`flex items-center justify-between p-2.5 rounded-xl border ${
+                        isPatient ? 'bg-white/10 border-white/20 text-white' : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}>
+                        <div className="flex items-center gap-2 overflow-hidden mr-2">
+                          <FileText size={18} className={isPatient ? 'text-emerald-200 shrink-0' : 'text-[#0A5C4A] shrink-0'} />
+                          <div className="truncate">
+                            <p className="font-bold text-[11px] truncate">{m.anexo_nome || 'Documento'}</p>
+                            <span className="text-[9px] opacity-75 font-mono">Arquivo / PDF</span>
+                          </div>
+                        </div>
+                        <a
+                          href={m.anexo_url}
+                          download={m.anexo_nome || 'documento'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+                            isPatient ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                          }`}
+                          title="Baixar Arquivo"
+                        >
+                          <Download size={14} />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Texto da mensagem */}
+                {m.conteudo && (
+                  <p className="leading-relaxed whitespace-pre-wrap">{m.conteudo}</p>
+                )}
+
                 <div
                   className={`text-[9px] font-mono mt-1 text-right flex items-center justify-end gap-1 ${
                     isPatient ? 'text-emerald-100/70' : 'text-slate-400'
@@ -318,11 +443,45 @@ export const ChatPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Input File Oculto */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileSelect}
+        accept="image/*,application/pdf,.doc,.docx"
+        className="hidden"
+      />
+
+      {/* Barra Prévia de Anexo Selecionado */}
+      {selectedFile && (
+        <div className="px-3 py-2 bg-[#E1F2EC] border-t border-[#C5E3D9] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 overflow-hidden text-xs text-[#0A5C4A]">
+            {selectedFile.type.startsWith('image/') ? <ImageIcon size={16} /> : <FileText size={16} />}
+            <span className="font-bold truncate max-w-[200px]">{selectedFile.name}</span>
+          </div>
+          <button
+            onClick={() => setSelectedFile(null)}
+            className="p-1 hover:bg-[#c3e6db] text-[#0A5C4A] rounded-full cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Message Input Bar */}
       <form
         onSubmit={handleSend}
         className="p-3 bg-white border-t border-[#D3E8E1] flex items-center gap-2 shrink-0 shadow-lg"
       >
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2 rounded-xl text-[#0A5C4A] hover:bg-[#F2FAF7] transition-colors shrink-0 cursor-pointer"
+          title="Anexar Foto ou Documento"
+        >
+          <Paperclip size={18} />
+        </button>
+
         <textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -333,7 +492,7 @@ export const ChatPage: React.FC = () => {
         />
         <button
           type="submit"
-          disabled={!inputText.trim() || sending}
+          disabled={(!inputText.trim() && !selectedFile) || sending}
           className="w-9 h-9 rounded-xl bg-[#0A5C4A] hover:bg-[#074739] text-white flex items-center justify-center shrink-0 shadow-md transition-all active:scale-95 disabled:opacity-40 cursor-pointer"
         >
           <Send size={15} />

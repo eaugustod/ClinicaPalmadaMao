@@ -23,6 +23,9 @@ export interface Mensagem {
   conteudo: string;
   lida: boolean;
   enviada_em: string;
+  anexo_url?: string | null;
+  anexo_nome?: string | null;
+  anexo_tipo?: string | null;
 }
 
 export interface Notificacao {
