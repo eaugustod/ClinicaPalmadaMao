@@ -4,6 +4,51 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 import { Mensagem } from '../types';
 
+const encodeMessageContent = (text: string, file?: { base64: string; name: string; type: string } | null): string => {
+  if (!file) return text;
+  const payload = {
+    t: text || '',
+    aUrl: file.base64,
+    aNome: file.name,
+    aTipo: file.type
+  };
+  return `[ANEXO_JSON]${JSON.stringify(payload)}[/ANEXO_JSON]`;
+};
+
+const parseMessageContent = (conteudo: string, msgAnexoUrl?: string | null, msgAnexoNome?: string | null, msgAnexoTipo?: string | null) => {
+  if (msgAnexoUrl) {
+    return {
+      text: conteudo || '',
+      anexoUrl: msgAnexoUrl,
+      anexoNome: msgAnexoNome || 'Anexo',
+      anexoTipo: msgAnexoTipo || 'application/octet-stream'
+    };
+  }
+
+  if (typeof conteudo === 'string' && conteudo.startsWith('[ANEXO_JSON]')) {
+    try {
+      const endIdx = conteudo.indexOf('[/ANEXO_JSON]');
+      const jsonStr = conteudo.slice('[ANEXO_JSON]'.length, endIdx > 0 ? endIdx : undefined);
+      const parsed = JSON.parse(jsonStr);
+      return {
+        text: parsed.t || '',
+        anexoUrl: parsed.aUrl || null,
+        anexoNome: parsed.aNome || 'Anexo',
+        anexoTipo: parsed.aTipo || 'application/octet-stream'
+      };
+    } catch (e) {
+      console.error('[ChatPage] Error parsing ANEXO_JSON:', e);
+    }
+  }
+
+  return {
+    text: conteudo || '',
+    anexoUrl: null,
+    anexoNome: null,
+    anexoTipo: null
+  };
+};
+
 export const ChatPage: React.FC = () => {
   const { user, conversaId, setUnreadCount, showToast } = useAuth();
   const [messages, setMessages] = useState<Mensagem[]>([]);
@@ -176,6 +221,7 @@ export const ChatPage: React.FC = () => {
     if ((!text && !selectedFile) || !user) return;
 
     const fileToUpload = selectedFile;
+    const formattedContent = encodeMessageContent(text, fileToUpload);
 
     // Demo Mode
     if (user?._isDemo || conversaId === 'demo') {
@@ -185,12 +231,9 @@ export const ChatPage: React.FC = () => {
         id: Date.now(),
         conversa_id: 0,
         tipo_remetente: 'paciente',
-        conteudo: text || `📎 Anexo: ${fileToUpload?.name}`,
+        conteudo: formattedContent,
         lida: true,
-        enviada_em: new Date().toISOString(),
-        anexo_url: fileToUpload?.base64 || null,
-        anexo_nome: fileToUpload?.name || null,
-        anexo_tipo: fileToUpload?.type || null
+        enviada_em: new Date().toISOString()
       };
       setMessages((prev) => [...prev, newMsgDemo]);
       return;
@@ -241,12 +284,9 @@ export const ChatPage: React.FC = () => {
           conversa_id: Number(targetConvId),
           remetente_id: Number(user.id),
           tipo_remetente: 'paciente',
-          conteudo: text || (fileToUpload ? `📎 Anexo: ${fileToUpload.name}` : ''),
+          conteudo: formattedContent,
           lida: false,
-          enviada_em: new Date().toISOString(),
-          anexo_url: fileToUpload?.base64 || null,
-          anexo_nome: fileToUpload?.name || null,
-          anexo_tipo: fileToUpload?.type || null
+          enviada_em: new Date().toISOString()
         })
         .select('*')
         .single();
@@ -370,7 +410,8 @@ export const ChatPage: React.FC = () => {
               );
             }
 
-            const isImg = m.anexo_tipo?.startsWith('image/') || m.anexo_url?.startsWith('data:image');
+            const parsed = parseMessageContent(m.conteudo, m.anexo_url, m.anexo_nome, m.anexo_tipo);
+            const isImg = parsed.anexoTipo?.startsWith('image/') || parsed.anexoUrl?.startsWith('data:image');
 
             return (
               <div
@@ -382,14 +423,14 @@ export const ChatPage: React.FC = () => {
                 }`}
               >
                 {/* Renderização de Anexo se existir */}
-                {m.anexo_url && (
+                {parsed.anexoUrl && (
                   <div className="mb-2">
                     {isImg ? (
                       <div
                         className="rounded-xl overflow-hidden cursor-pointer border border-black/10 hover:opacity-90 transition-opacity"
-                        onClick={() => setPreviewImage(m.anexo_url || null)}
+                        onClick={() => setPreviewImage(parsed.anexoUrl || null)}
                       >
-                        <img src={m.anexo_url} alt={m.anexo_nome || 'Anexo'} className="max-h-48 w-full object-cover rounded-xl" />
+                        <img src={parsed.anexoUrl} alt={parsed.anexoNome || 'Anexo'} className="max-h-48 w-full object-cover rounded-xl" />
                       </div>
                     ) : (
                       <div className={`flex items-center justify-between p-2.5 rounded-xl border ${
@@ -398,13 +439,13 @@ export const ChatPage: React.FC = () => {
                         <div className="flex items-center gap-2 overflow-hidden mr-2">
                           <FileText size={18} className={isPatient ? 'text-emerald-200 shrink-0' : 'text-[#0A5C4A] shrink-0'} />
                           <div className="truncate">
-                            <p className="font-bold text-[11px] truncate">{m.anexo_nome || 'Documento'}</p>
+                            <p className="font-bold text-[11px] truncate">{parsed.anexoNome || 'Documento'}</p>
                             <span className="text-[9px] opacity-75 font-mono">Arquivo / PDF</span>
                           </div>
                         </div>
                         <a
-                          href={m.anexo_url}
-                          download={m.anexo_nome || 'documento'}
+                          href={parsed.anexoUrl}
+                          download={parsed.anexoNome || 'documento'}
                           target="_blank"
                           rel="noopener noreferrer"
                           className={`p-1.5 rounded-lg transition-colors shrink-0 ${
@@ -420,8 +461,8 @@ export const ChatPage: React.FC = () => {
                 )}
 
                 {/* Texto da mensagem */}
-                {m.conteudo && (
-                  <p className="leading-relaxed whitespace-pre-wrap">{m.conteudo}</p>
+                {parsed.text && (
+                  <p className="leading-relaxed whitespace-pre-wrap">{parsed.text}</p>
                 )}
 
                 <div
